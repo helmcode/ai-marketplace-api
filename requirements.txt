@@ -1,0 +1,29 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+
+# Database
+sqlalchemy==2.0.35
+psycopg2-binary==2.9.9
+alembic==1.13.2
+
+# Authentication
+python-jose[cryptography]==3.3.0
+httpx==0.27.2
+
+# Configuration
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# SSH client (for VPS operations)
+paramiko==3.4.1
+
+# Encryption
+cryptography==43.0.1
+
+# Validation
+email-validator==2.3.0
+
+# Utilities
+python-dateutil==2.9.0
