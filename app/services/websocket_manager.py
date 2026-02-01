@@ -18,6 +18,7 @@ class WebSocketConnection:
     resource_type: str  # "terminal", "install", "tui"
     connected_at: datetime = field(default_factory=datetime.utcnow)
     metadata: dict = field(default_factory=dict)
+    read_task: Optional[asyncio.Task] = field(default=None)
 
 
 class WebSocketManager:
@@ -76,6 +77,17 @@ class WebSocketManager:
         resource_key = self._connection_key(resource_type, resource_id)
 
         async with self._lock:
+            # Cancel read task if exists
+            if resource_key in self._connections:
+                if connection_id in self._connections[resource_key]:
+                    conn = self._connections[resource_key][connection_id]
+                    if conn.read_task and not conn.read_task.done():
+                        conn.read_task.cancel()
+                        try:
+                            await conn.read_task
+                        except asyncio.CancelledError:
+                            pass
+
             # Close SSH channel if exists
             if connection_id in self._ssh_channels:
                 try:
@@ -182,8 +194,11 @@ class WebSocketManager:
                 await asyncio.sleep(0.5)  # Wait for shell to be ready
                 channel.send(initial_command + "\n")
 
-            # Start reading output
-            await self._read_terminal_output(connection_id, channel, conn.websocket)
+            # Start reading output in a background task (non-blocking)
+            read_task = asyncio.create_task(
+                self._read_terminal_output(connection_id, channel, conn.websocket)
+            )
+            conn.read_task = read_task
 
         except Exception as e:
             await conn.websocket.send_json({
