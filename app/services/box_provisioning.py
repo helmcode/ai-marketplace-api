@@ -17,8 +17,8 @@ from app.core.exceptions import BadRequestError, NotFoundError
 class BoxProvisioningService:
     """Service for provisioning and managing boxes (VPS instances)."""
 
-    # Ubuntu 22.04 LTS image slug
-    UBUNTU_IMAGE = "ubuntu-22-04-x64"
+    # Ubuntu 24.04 LTS image slug
+    UBUNTU_IMAGE = "ubuntu-24-04-x64"
 
     def __init__(self, db: Session):
         self.db = db
