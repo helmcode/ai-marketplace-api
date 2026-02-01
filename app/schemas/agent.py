@@ -12,6 +12,10 @@ class AgentResponse(BaseModel):
     long_description: Optional[str] = None
     icon_url: Optional[str] = None
     config_schema: Optional[dict[str, Any]] = None
+    # New box model fields
+    install_script_url: Optional[str] = None
+    install_command: Optional[str] = None
+    tui_command: Optional[str] = None
     base_price: int
     created_at: datetime
 
@@ -25,6 +29,7 @@ class AgentListResponse(BaseModel):
     slug: str
     description: Optional[str] = None
     icon_url: Optional[str] = None
+    install_script_url: Optional[str] = None
     base_price: int
 
     class Config:

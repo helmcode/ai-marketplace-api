@@ -7,7 +7,7 @@ from alembic import context
 
 from app.config import get_settings
 from app.database import Base
-from app.models import User, AgentCatalog, Deployment, DeploymentConfig
+from app.models import User, AgentCatalog, Box, BoxAgent
 
 config = context.config
 

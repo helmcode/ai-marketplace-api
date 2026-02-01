@@ -1,10 +1,22 @@
 from app.schemas.user import UserCreate, UserUpdate, UserResponse
 from app.schemas.agent import AgentResponse, AgentListResponse
-from app.schemas.deployment import (
-    DeploymentCreate,
-    DeploymentResponse,
-    DeploymentListResponse,
-    DeploymentConfigItem
+from app.schemas.box import (
+    BoxTierEnum,
+    BoxStatusEnum,
+    TierSpec,
+    TierListResponse,
+    BoxCreate,
+    BoxResponse,
+    BoxListResponse,
+    BoxUpdate,
+)
+from app.schemas.box_agent import (
+    BoxAgentStatusEnum,
+    BoxAgentCreate,
+    BoxAgentResponse,
+    BoxAgentListResponse,
+    BoxAgentUpdate,
+    BoxAgentInstallLog,
 )
 
 __all__ = [
@@ -13,8 +25,20 @@ __all__ = [
     "UserResponse",
     "AgentResponse",
     "AgentListResponse",
-    "DeploymentCreate",
-    "DeploymentResponse",
-    "DeploymentListResponse",
-    "DeploymentConfigItem"
+    # Box schemas
+    "BoxTierEnum",
+    "BoxStatusEnum",
+    "TierSpec",
+    "TierListResponse",
+    "BoxCreate",
+    "BoxResponse",
+    "BoxListResponse",
+    "BoxUpdate",
+    # BoxAgent schemas
+    "BoxAgentStatusEnum",
+    "BoxAgentCreate",
+    "BoxAgentResponse",
+    "BoxAgentListResponse",
+    "BoxAgentUpdate",
+    "BoxAgentInstallLog",
 ]

@@ -7,8 +7,10 @@ settings = get_settings()
 engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10
+    pool_size=20,
+    max_overflow=30,
+    pool_recycle=1800,  # Recycle connections after 30 minutes
+    pool_timeout=10,    # Fail fast if pool is exhausted
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

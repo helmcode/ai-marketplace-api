@@ -17,7 +17,9 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    deployments = relationship("Deployment", back_populates="user", cascade="all, delete-orphan")
+    # Box model relationships
+    boxes = relationship("Box", backref="user", cascade="all, delete-orphan",
+                        foreign_keys="Box.user_id", primaryjoin="User.id == Box.user_id")
 
     def __repr__(self):
         return f"<User {self.email}>"

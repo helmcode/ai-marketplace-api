@@ -78,13 +78,24 @@ including WhatsApp, Slack, Telegram, and Discord.
 - **Tool Integration**: Extend capabilities with custom tools and skills
 - **Self-Hosted**: Full control over your data and configuration
 
-## What's Included
+## Installation
 
-- Pre-configured VPS with OpenClaw installed
-- SSH access for advanced configuration
-- Default workspace files ready to customize
-- Gateway running and ready to connect
+OpenClaw is installed directly into your Box via the one-click installer.
+The installation process:
+1. Downloads and installs OpenClaw CLI
+2. Sets up the default workspace
+3. Configures the gateway
+
+## Interacting with OpenClaw
+
+After installation, use the TUI (Terminal UI) to chat with your agent directly
+from the web interface. No SSH required!
 """
+
+# OpenClaw installation script URL
+OPENCLAW_INSTALL_SCRIPT_URL = "https://openclaw.ai/install.sh"
+OPENCLAW_INSTALL_COMMAND = "curl -fsSL https://openclaw.ai/install.sh | bash"
+OPENCLAW_TUI_COMMAND = "openclaw tui"
 
 
 def seed_agents():
@@ -103,6 +114,10 @@ def seed_agents():
             existing.droplet_size = "s-1vcpu-2gb"
             existing.droplet_region = "nyc1"
             existing.is_active = 1
+            # New box model fields
+            existing.install_script_url = OPENCLAW_INSTALL_SCRIPT_URL
+            existing.install_command = OPENCLAW_INSTALL_COMMAND
+            existing.tui_command = OPENCLAW_TUI_COMMAND
         else:
             print("Creating OpenClaw agent...")
             agent = AgentCatalog(
@@ -112,11 +127,15 @@ def seed_agents():
                 long_description=OPENCLAW_LONG_DESCRIPTION,
                 icon_url="/agents/openclaw.svg",
                 config_schema=OPENCLAW_CONFIG_SCHEMA,
-                snapshot_id=None,  # Set this after creating the DO snapshot
+                snapshot_id=None,  # Legacy field, not used in box model
                 droplet_size="s-1vcpu-2gb",
                 droplet_region="nyc1",
                 base_price=2900,
-                is_active=1
+                is_active=1,
+                # New box model fields
+                install_script_url=OPENCLAW_INSTALL_SCRIPT_URL,
+                install_command=OPENCLAW_INSTALL_COMMAND,
+                tui_command=OPENCLAW_TUI_COMMAND
             )
             db.add(agent)
 
