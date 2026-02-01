@@ -98,7 +98,7 @@ class BoxProvisioningService:
             tier_specs = BOX_TIER_SPECS.get(BoxTier(box.tier), BOX_TIER_SPECS[BoxTier.BASIC])
 
             # Create droplet
-            update_status(f"Creating {tier_specs['display_name']} VPS...")
+            update_status(f"Creating {tier_specs['display_name']} Box...")
             droplet_name = f"box-{box.id}"
             droplet_result = await self.do_service.create_droplet(
                 name=droplet_name,
@@ -114,7 +114,7 @@ class BoxProvisioningService:
             self.db.commit()
 
             # Wait for droplet to be active
-            update_status("Waiting for VPS to become active...")
+            update_status("Waiting for Box to become active...")
             ip_address = await self.do_service.wait_for_droplet_active(
                 droplet_id,
                 timeout=300,
