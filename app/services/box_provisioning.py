@@ -76,8 +76,8 @@ class BoxProvisioningService:
             # Generate system SSH keypair
             private_key, public_key = self._generate_ssh_keypair()
 
-            # Add system SSH key to Digital Ocean
-            update_status("Registering SSH key with Digital Ocean...")
+            # Add system SSH key to cloud provider
+            update_status("Configuring secure access...")
             key_name = f"box-{box.id}-system"
             key_result = await self.do_service.add_ssh_key(key_name, public_key)
             system_key_id = key_result["ssh_key"]["id"]
