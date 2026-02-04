@@ -274,15 +274,24 @@ DELETE /api/boxes/{box_id}/agents/{agent_id}
        Uninstall agent from box
 ```
 
-### Agent Terminal (Protected, WebSocket)
+### WebSocket Endpoints (Protected)
 
 ```
-WS  /api/boxes/{box_id}/agents/{agent_id}/terminal
-    WebSocket connection for agent interaction
-    - Automatically executes the agent's tui_command
-    - User CANNOT execute arbitrary commands (restricted terminal)
-    - Only for interacting with the agent's TUI
-    - For full shell access, user must SSH from their own machine
+WS  /ws/tui/{box_agent_id}
+    Agent TUI interaction
+    - Executes the agent's tui_command (e.g., "claude", "openclaw tui")
+    - Session closes when user exits the TUI
+
+WS  /ws/install-tui/{box_agent_id}
+    Combined install + TUI flow
+    - Runs install_command, then automatically launches tui_command
+    - Session closes when user exits the TUI
+    - Used during initial agent setup
+
+WS  /ws/terminal/{box_id}
+    Full terminal access (restricted)
+    - Interactive shell session to box
+    - Only for authenticated box owners
 ```
 
 ## Digital Ocean Integration
@@ -338,129 +347,76 @@ class DigitalOceanService:
 
 ## Box Provisioning Flow
 
-### Service: `services/provisioning.py`
+### Service: `services/box_provisioning.py`
+
+Uses a **single system SSH key** pre-configured in DigitalOcean. No per-box SSH keys are created.
 
 ```python
-async def provision_box(box: Box):
+async def provision_box(box: Box, user_ssh_public_key: Optional[str] = None):
     """
     Provision a new Box (VPS):
-    1. Generate system SSH keypair (for backend access)
-    2. Add system SSH key to Digital Ocean
-    3. Create droplet with Ubuntu 24.04
-    4. Wait for droplet to be active
-    5. Store IP and update status
+    1. Use pre-configured system SSH key from DO
+    2. Create droplet with Ubuntu 24.04
+    3. Wait for droplet to be active
+    4. Add user's SSH key via SSH (if provided)
     """
 
-    # 1. Generate system SSH keypair
-    private_key, public_key = generate_ssh_keypair()
+    # Use the pre-configured system SSH key in DigitalOcean
+    system_key_id = int(settings.digitalocean_system_ssh_key_id)
 
-    # 2. Add SSH key to DO
-    ssh_key = await do_service.create_ssh_key(
-        name=f"box-{box.id}-system",
-        public_key=public_key
-    )
-
-    # 3. Create droplet
+    # Create droplet with system SSH key only
     droplet = await do_service.create_droplet(
         name=f"box-{box.id}",
-        ssh_keys=[ssh_key["ssh_key"]["id"]],
-        size=box.do_size,  # From tier specs
+        ssh_key_ids=[system_key_id],
+        size=tier_specs["do_size"],
         region=box.region,
         image="ubuntu-24-04-x64"
     )
 
-    # 4. Wait for active status
+    # Wait for active status
     ip_address = await wait_for_droplet_active(droplet["droplet"]["id"])
 
-    # 5. Update box record
+    # Update box record
     box.droplet_id = droplet["droplet"]["id"]
     box.ip_address = ip_address
-    box.system_ssh_key_id = ssh_key["ssh_key"]["id"]
-    box.system_private_key = encrypt(private_key)  # Store encrypted
+    box.system_ssh_key_id = str(system_key_id)
     box.status = BoxStatus.RUNNING
+
+    # Add user's SSH key to box via SSH if provided
+    if user_ssh_public_key:
+        await _add_user_ssh_key_to_box(box, user_ssh_public_key)
+        box.user_ssh_synced = '1'
 
     return box
 ```
 
 ## Agent Installation Flow
 
-```python
-async def install_agent(box: Box, agent: AgentCatalog, instance_name: str):
-    """
-    Install an agent inside a Box:
-    1. Connect to box via SSH (using system key)
-    2. Run agent's install_command
-    3. Update BoxAgent status
-    """
-
-    ssh = SSHClient(
-        host=box.ip_address,
-        user="root",
-        private_key=decrypt(box.system_private_key)
-    )
-
-    # Run installation
-    exit_code, output = await ssh.execute(agent.install_command)
-
-    if exit_code == 0:
-        return BoxAgentStatus.RUNNING, output
-    else:
-        return BoxAgentStatus.FAILED, output
-```
-
-## Agent Terminal (Restricted WebSocket)
-
-The web terminal is **restricted** - it only allows interaction with the agent's TUI.
-Users cannot execute arbitrary commands from the UI. For full shell access, they must SSH from their own machine.
+Installation happens via WebSocket (`/ws/install-tui/`) for real-time output:
 
 ```python
-@router.websocket("/boxes/{box_id}/agents/{agent_id}/terminal")
-async def agent_terminal_websocket(
-    websocket: WebSocket,
-    box_id: UUID,
-    agent_id: UUID,
-    current_user: User = Depends(get_current_user_ws)
-):
-    """
-    Restricted terminal for agent interaction only.
-    - Automatically executes the agent's tui_command
-    - User can only interact with the agent TUI
-    - NO arbitrary command execution allowed
-    """
-    box = await get_user_box(box_id, current_user)
-    box_agent = await get_box_agent(box_id, agent_id)
-    agent_catalog = await get_agent_catalog(box_agent.agent_id)
-
-    ssh = SSHClient(
-        host=box.ip_address,
-        user="root",
-        private_key=decrypt(box.system_private_key)
-    )
-
-    await websocket.accept()
-
-    # Execute ONLY the agent's tui_command (e.g., "openclaw tui", "claude")
-    channel = await ssh.exec_command(agent_catalog.tui_command)
-
-    # Bidirectional proxy for TUI interaction
-    async def read_ssh():
-        while True:
-            data = await channel.recv(1024)
-            if not data:
-                break
-            await websocket.send_text(data.decode())
-
-    async def write_ssh():
-        while True:
-            data = await websocket.receive_text()
-            channel.send(data.encode())
-
-    try:
-        await asyncio.gather(read_ssh(), write_ssh())
-    finally:
-        channel.close()
-        # TODO (Phase 2): Detect when user exits agent and close connection
+# Combined install + TUI command
+combined_command = f'({install_command}) && export PATH="$HOME/.local/bin:$PATH" && {tui_command}; exit $?'
 ```
+
+The flow:
+1. User selects agent to install → creates BoxAgent record
+2. Frontend connects to `/ws/install-tui/{box_agent_id}`
+3. Backend runs combined command (install + TUI)
+4. User configures agent in TUI
+5. When user exits TUI, session closes automatically
+
+## WebSocket Terminal Architecture
+
+The backend uses `WebSocketManager` to handle terminal sessions:
+
+- **SSH Connection**: Uses system SSH key (Ed25519/RSA/ECDSA supported)
+- **Interactive Shell**: `paramiko.Channel` with PTY for full terminal emulation
+- **Bidirectional Proxy**: Forwards data between WebSocket and SSH channel
+- **Auto-cleanup**: Sessions close when user exits TUI or disconnects
+
+Terminal sessions are **restricted by design** - they only run the agent's configured commands.
+For full shell access, users must SSH from their own machine using their synced SSH key.
 
 ## Auth0 JWT Validation
 
@@ -509,6 +465,8 @@ AUTH0_CLIENT_ID=your-client-id
 
 # Digital Ocean
 DIGITALOCEAN_TOKEN=your-do-token
+DIGITALOCEAN_SYSTEM_SSH_KEY_ID=12345678  # ID of pre-configured SSH key in DO
+SYSTEM_SSH_PRIVATE_KEY_PATH=/path/to/.ssh/id_ed25519  # Path to private key on server
 
 # Encryption (for sensitive config values)
 ENCRYPTION_KEY=your-32-byte-key
