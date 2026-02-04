@@ -15,7 +15,7 @@ class UserUpdate(BaseModel):
 
 class UserResponse(BaseModel):
     id: UUID
-    email: EmailStr
+    email: str  # Changed from EmailStr - Auth0 can return non-email identifiers
     ssh_public_key: Optional[str] = None
     created_at: datetime
     updated_at: datetime
