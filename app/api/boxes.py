@@ -33,6 +33,7 @@ def _enrich_box_response(box: Box) -> dict:
         "tier_cpu": tier_specs["cpu"],
         "tier_ram_gb": tier_specs["ram_gb"],
         "tier_price_cents": tier_specs["price_cents"],
+        "user_ssh_synced": box.user_ssh_synced == '1',
     }
 
 
@@ -152,6 +153,33 @@ async def update_box(
         box.name = box_data.name
         db.commit()
         db.refresh(box)
+
+    return _enrich_box_response(box)
+
+
+@router.post("/{box_id}/sync-ssh", response_model=BoxResponse)
+async def sync_ssh_key(
+    box_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Sync user's SSH public key to the box's authorized_keys."""
+    box = db.query(Box).filter(Box.id == box_id).first()
+
+    if not box:
+        raise NotFoundError("Box not found")
+
+    if box.user_id != current_user.id:
+        raise ForbiddenError("You don't have access to this box")
+
+    if not current_user.ssh_public_key:
+        raise BadRequestError("You need to configure your SSH public key first")
+
+    if box.user_ssh_synced == '1':
+        raise BadRequestError("SSH key is already synced to this box")
+
+    service = get_box_provisioning_service(db)
+    await service.sync_user_ssh_key(box, current_user.ssh_public_key)
 
     return _enrich_box_response(box)
 

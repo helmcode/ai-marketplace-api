@@ -79,6 +79,9 @@ class Box(Base):
     system_ssh_key_id = Column(String(50), nullable=True)
     system_private_key = Column(Text, nullable=True)  # Encrypted
 
+    # User SSH access tracking
+    user_ssh_synced = Column(String(1), default='0')  # '0' = not synced, '1' = synced
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -126,6 +126,9 @@ class BoxProvisioningService:
             box.system_ssh_key_id = str(system_key_id)
             box.system_private_key = encrypt_value(private_key)
             box.status = BoxStatus.RUNNING.value
+            # Mark user SSH as synced if key was provided during creation
+            if user_ssh_public_key:
+                box.user_ssh_synced = '1'
             update_status("Box is ready!")
 
             self.db.commit()
@@ -253,6 +256,43 @@ class BoxProvisioningService:
         if agent.tui_command:
             return agent.tui_command
         return "openclaw tui"
+
+    async def sync_user_ssh_key(self, box: Box, user_ssh_public_key: str) -> Box:
+        """
+        Sync user's SSH public key to a running box.
+
+        This adds the user's key to ~/.ssh/authorized_keys on the box,
+        allowing them to SSH directly.
+        """
+        if box.status != BoxStatus.RUNNING.value:
+            raise BadRequestError("Box is not running")
+
+        if not box.ip_address:
+            raise BadRequestError("Box does not have an IP address")
+
+        if not user_ssh_public_key:
+            raise BadRequestError("No SSH public key provided")
+
+        ssh = self._get_ssh_service(box)
+
+        # Add user's SSH key to authorized_keys
+        # Using a heredoc to safely handle the key content
+        add_key_command = f'''
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+grep -qxF "{user_ssh_public_key}" ~/.ssh/authorized_keys 2>/dev/null || echo "{user_ssh_public_key}" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+'''
+        stdout, stderr, exit_code = await ssh.execute(add_key_command, timeout=30)
+
+        if exit_code != 0:
+            raise BadRequestError(f"Failed to add SSH key: {stderr}")
+
+        # Mark as synced
+        box.user_ssh_synced = '1'
+        box.updated_at = datetime.utcnow()
+        self.db.commit()
+
+        return box
 
 
 def get_box_provisioning_service(db: Session) -> BoxProvisioningService:

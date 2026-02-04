@@ -67,6 +67,9 @@ class BoxResponse(BaseModel):
     tier_ram_gb: Optional[int] = None
     tier_price_cents: Optional[int] = None
 
+    # User SSH access
+    user_ssh_synced: bool = False
+
     class Config:
         from_attributes = True
 
