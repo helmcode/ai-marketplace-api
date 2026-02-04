@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     # Digital Ocean
     digitalocean_token: str = ""
+    digitalocean_system_ssh_key_id: str = ""  # ID of the SSH key in DO for system access
+    system_ssh_private_key_path: str = ""  # Path to the private key file on this server
 
     # Encryption
     encryption_key: str = ""

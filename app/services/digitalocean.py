@@ -133,6 +133,12 @@ class DigitalOceanService:
 
             return None
 
+    async def delete_ssh_key(self, key_id: str) -> bool:
+        """Delete an SSH key from the account."""
+        async with self._get_client() as client:
+            response = await client.delete(f"/account/keys/{key_id}")
+            return response.status_code == 204
+
     async def list_snapshots(self) -> list[dict]:
         """List all snapshots."""
         async with self._get_client() as client:

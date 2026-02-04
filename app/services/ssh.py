@@ -34,8 +34,18 @@ class SSHService:
         }
 
         if self.private_key:
+            # Try to load key (supports RSA, Ed25519, ECDSA)
             key_file = StringIO(self.private_key)
-            pkey = paramiko.RSAKey.from_private_key(key_file)
+            pkey = None
+            for key_class in [paramiko.Ed25519Key, paramiko.RSAKey, paramiko.ECDSAKey]:
+                try:
+                    key_file.seek(0)
+                    pkey = key_class.from_private_key(key_file)
+                    break
+                except Exception:
+                    continue
+            if pkey is None:
+                raise Exception("Could not load SSH private key")
             connect_kwargs["pkey"] = pkey
         elif self.private_key_path:
             connect_kwargs["key_filename"] = self.private_key_path

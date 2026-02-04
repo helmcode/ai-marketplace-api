@@ -160,8 +160,19 @@ class WebSocketManager:
             client = paramiko.SSHClient()
             client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
+            # Try to load key (supports RSA, Ed25519, ECDSA)
             key_file = StringIO(private_key)
-            pkey = paramiko.RSAKey.from_private_key(key_file)
+            pkey = None
+            for key_class in [paramiko.Ed25519Key, paramiko.RSAKey, paramiko.ECDSAKey]:
+                try:
+                    key_file.seek(0)
+                    pkey = key_class.from_private_key(key_file)
+                    break
+                except Exception:
+                    continue
+
+            if pkey is None:
+                raise Exception("Could not load SSH private key")
 
             # Run connection in executor to avoid blocking
             loop = asyncio.get_event_loop()
@@ -191,7 +202,7 @@ class WebSocketManager:
 
             # If there's an initial command, send it
             if initial_command:
-                await asyncio.sleep(0.5)  # Wait for shell to be ready
+                await asyncio.sleep(1.0)  # Wait for shell to be ready and for client to send resize
                 channel.send(initial_command + "\n")
 
             # Start reading output in a background task (non-blocking)

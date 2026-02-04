@@ -97,47 +97,94 @@ OPENCLAW_INSTALL_SCRIPT_URL = "https://openclaw.ai/install.sh"
 OPENCLAW_INSTALL_COMMAND = "curl -fsSL https://openclaw.ai/install.sh | bash"
 OPENCLAW_TUI_COMMAND = "openclaw tui"
 
+# Claude Code configuration
+CLAUDE_CODE_DESCRIPTION = "Anthropic's official AI coding assistant in your terminal."
+
+CLAUDE_CODE_LONG_DESCRIPTION = """
+Claude Code is Anthropic's official agentic coding tool that lives in your terminal.
+
+## Features
+
+- **Agentic Coding**: Claude understands your codebase and can make changes across multiple files
+- **Terminal Native**: Works directly in your terminal with a beautiful TUI
+- **Context Aware**: Understands project structure, dependencies, and conventions
+- **Safe by Default**: Asks for confirmation before making changes
+- **Multi-Language**: Supports all major programming languages
+
+## Installation
+
+Claude Code is installed via Anthropic's official installer script.
+The installation process:
+1. Downloads and installs the Claude CLI
+2. Sets up authentication
+3. Configures your environment
+
+## Getting Started
+
+After installation, you'll be guided through:
+1. Authenticating with your Anthropic account
+2. Setting up your API key
+3. Starting your first coding session
+
+Use the TUI to interact with Claude directly from your Box.
+"""
+
+CLAUDE_CODE_INSTALL_SCRIPT_URL = "https://claude.ai/install.sh"
+CLAUDE_CODE_INSTALL_COMMAND = "curl -fsSL https://claude.ai/install.sh | bash"
+CLAUDE_CODE_TUI_COMMAND = "claude"
+
+
+def seed_agent(db, slug: str, data: dict):
+    """Create or update an agent in the catalog."""
+    existing = db.query(AgentCatalog).filter(AgentCatalog.slug == slug).first()
+
+    if existing:
+        print(f"{data['name']} agent already exists, updating...")
+        for key, value in data.items():
+            setattr(existing, key, value)
+    else:
+        print(f"Creating {data['name']} agent...")
+        agent = AgentCatalog(slug=slug, **data)
+        db.add(agent)
+
 
 def seed_agents():
     db = SessionLocal()
 
     try:
-        existing = db.query(AgentCatalog).filter(AgentCatalog.slug == "openclaw").first()
+        # Seed OpenClaw
+        seed_agent(db, "openclaw", {
+            "name": "OpenClaw",
+            "description": OPENCLAW_DESCRIPTION,
+            "long_description": OPENCLAW_LONG_DESCRIPTION,
+            "icon_url": "/agents/openclaw.svg",
+            "config_schema": OPENCLAW_CONFIG_SCHEMA,
+            "snapshot_id": None,
+            "droplet_size": "s-1vcpu-2gb",
+            "droplet_region": "nyc1",
+            "base_price": 2900,  # $29.00
+            "is_active": 1,
+            "install_script_url": OPENCLAW_INSTALL_SCRIPT_URL,
+            "install_command": OPENCLAW_INSTALL_COMMAND,
+            "tui_command": OPENCLAW_TUI_COMMAND,
+        })
 
-        if existing:
-            print("OpenClaw agent already exists, updating...")
-            existing.name = "OpenClaw"
-            existing.description = OPENCLAW_DESCRIPTION
-            existing.long_description = OPENCLAW_LONG_DESCRIPTION
-            existing.config_schema = OPENCLAW_CONFIG_SCHEMA
-            existing.base_price = 2900  # $29.00
-            existing.droplet_size = "s-1vcpu-2gb"
-            existing.droplet_region = "nyc1"
-            existing.is_active = 1
-            # New box model fields
-            existing.install_script_url = OPENCLAW_INSTALL_SCRIPT_URL
-            existing.install_command = OPENCLAW_INSTALL_COMMAND
-            existing.tui_command = OPENCLAW_TUI_COMMAND
-        else:
-            print("Creating OpenClaw agent...")
-            agent = AgentCatalog(
-                name="OpenClaw",
-                slug="openclaw",
-                description=OPENCLAW_DESCRIPTION,
-                long_description=OPENCLAW_LONG_DESCRIPTION,
-                icon_url="/agents/openclaw.svg",
-                config_schema=OPENCLAW_CONFIG_SCHEMA,
-                snapshot_id=None,  # Legacy field, not used in box model
-                droplet_size="s-1vcpu-2gb",
-                droplet_region="nyc1",
-                base_price=2900,
-                is_active=1,
-                # New box model fields
-                install_script_url=OPENCLAW_INSTALL_SCRIPT_URL,
-                install_command=OPENCLAW_INSTALL_COMMAND,
-                tui_command=OPENCLAW_TUI_COMMAND
-            )
-            db.add(agent)
+        # Seed Claude Code
+        seed_agent(db, "claude-code", {
+            "name": "Claude Code",
+            "description": CLAUDE_CODE_DESCRIPTION,
+            "long_description": CLAUDE_CODE_LONG_DESCRIPTION,
+            "icon_url": "/agents/claude-code.svg",
+            "config_schema": {},  # User configures via TUI
+            "snapshot_id": None,
+            "droplet_size": "s-1vcpu-2gb",
+            "droplet_region": "nyc1",
+            "base_price": 0,  # Free (user pays Anthropic directly)
+            "is_active": 1,
+            "install_script_url": CLAUDE_CODE_INSTALL_SCRIPT_URL,
+            "install_command": CLAUDE_CODE_INSTALL_COMMAND,
+            "tui_command": CLAUDE_CODE_TUI_COMMAND,
+        })
 
         db.commit()
         print("Seed completed successfully!")

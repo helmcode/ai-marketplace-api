@@ -2,9 +2,6 @@ import asyncio
 from typing import Optional, Callable
 from uuid import UUID
 from datetime import datetime
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.backends import default_backend
 from sqlalchemy.orm import Session
 
 from app.models import Box, BoxAgent, BoxStatus, BoxAgentStatus, BOX_TIER_SPECS, BoxTier, AgentCatalog
@@ -12,6 +9,7 @@ from app.services.digitalocean import get_digitalocean_service
 from app.services.ssh import SSHService
 from app.core.security import encrypt_value, decrypt_value
 from app.core.exceptions import BadRequestError, NotFoundError
+from app.config import get_settings
 
 
 class BoxProvisioningService:
@@ -23,27 +21,13 @@ class BoxProvisioningService:
     def __init__(self, db: Session):
         self.db = db
         self.do_service = get_digitalocean_service()
+        self.settings = get_settings()
 
-    def _generate_ssh_keypair(self) -> tuple[str, str]:
-        """Generate a new RSA SSH keypair for backend access."""
-        key = rsa.generate_private_key(
-            backend=default_backend(),
-            public_exponent=65537,
-            key_size=4096
-        )
-
-        private_key = key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.OpenSSH,
-            encryption_algorithm=serialization.NoEncryption()
-        ).decode('utf-8')
-
-        public_key = key.public_key().public_bytes(
-            encoding=serialization.Encoding.OpenSSH,
-            format=serialization.PublicFormat.OpenSSH
-        ).decode('utf-8')
-
-        return private_key, public_key
+    def _get_system_ssh_private_key(self) -> str:
+        """Read the system SSH private key from file."""
+        key_path = self.settings.system_ssh_private_key_path
+        with open(key_path, 'r') as f:
+            return f.read()
 
     async def provision_box(
         self,
@@ -55,11 +39,9 @@ class BoxProvisioningService:
         Provision a new box with clean Ubuntu.
 
         Steps:
-        1. Generate system SSH keypair for backend access
-        2. Add SSH keys to Digital Ocean
-        3. Create droplet with clean Ubuntu image
-        4. Wait for droplet to become active
-        5. Store system private key (encrypted)
+        1. Create droplet with system SSH key (pre-configured in DO)
+        2. Wait for droplet to become active
+        3. Add user's SSH key to authorized_keys via SSH (if provided)
         """
 
         def update_status(message: str):
@@ -71,39 +53,21 @@ class BoxProvisioningService:
 
         try:
             box.status = BoxStatus.PROVISIONING.value
-            update_status("Generating SSH keys...")
+            update_status("Preparing Box...")
 
-            # Generate system SSH keypair
-            private_key, public_key = self._generate_ssh_keypair()
-
-            # Add system SSH key to cloud provider
-            update_status("Configuring secure access...")
-            key_name = f"box-{box.id}-system"
-            key_result = await self.do_service.add_ssh_key(key_name, public_key)
-            system_key_id = key_result["ssh_key"]["id"]
-
-            # Collect SSH keys for droplet
-            ssh_key_ids = [system_key_id]
-
-            # Add user's SSH key if provided
-            if user_ssh_public_key:
-                update_status("Adding user SSH key...")
-                user_key_result = await self.do_service.add_ssh_key(
-                    f"user-{box.user_id}",
-                    user_ssh_public_key
-                )
-                ssh_key_ids.append(user_key_result["ssh_key"]["id"])
+            # Use the pre-configured system SSH key in DigitalOcean
+            system_key_id = int(self.settings.digitalocean_system_ssh_key_id)
 
             # Get tier specifications
             tier_specs = BOX_TIER_SPECS.get(BoxTier(box.tier), BOX_TIER_SPECS[BoxTier.BASIC])
 
-            # Create droplet
+            # Create droplet with system SSH key only
             update_status(f"Creating {tier_specs['display_name']} Box...")
             droplet_name = f"box-{box.id}"
             droplet_result = await self.do_service.create_droplet(
                 name=droplet_name,
                 snapshot_id=self.UBUNTU_IMAGE,
-                ssh_key_ids=ssh_key_ids,
+                ssh_key_ids=[system_key_id],
                 size=tier_specs["do_size"],
                 region=box.region,
                 tags=["ai-marketplace", "box", box.tier]
@@ -121,17 +85,20 @@ class BoxProvisioningService:
                 poll_interval=10
             )
 
-            # Store results
+            # Store results (no per-box private key needed, we use the system key)
             box.ip_address = ip_address
             box.system_ssh_key_id = str(system_key_id)
-            box.system_private_key = encrypt_value(private_key)
             box.status = BoxStatus.RUNNING.value
-            # Mark user SSH as synced if key was provided during creation
-            if user_ssh_public_key:
-                box.user_ssh_synced = '1'
             update_status("Box is ready!")
-
             self.db.commit()
+
+            # Add user's SSH key to box via SSH if provided
+            if user_ssh_public_key:
+                update_status("Adding your SSH key...")
+                await self._add_user_ssh_key_to_box(box, user_ssh_public_key)
+                box.user_ssh_synced = '1'
+                self.db.commit()
+
             return box
 
         except Exception as e:
@@ -140,8 +107,34 @@ class BoxProvisioningService:
             self.db.commit()
             raise
 
+    async def _add_user_ssh_key_to_box(self, box: Box, user_ssh_public_key: str) -> None:
+        """Add user's SSH public key to the box's authorized_keys."""
+        add_key_command = f'''
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+grep -qxF "{user_ssh_public_key}" ~/.ssh/authorized_keys 2>/dev/null || echo "{user_ssh_public_key}" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+'''
+        # Retry SSH connection as droplet may need time to fully start SSH service
+        max_retries = 6
+        retry_delay = 10  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                ssh = self._get_ssh_service(box)
+                stdout, stderr, exit_code = await ssh.execute(add_key_command, timeout=30)
+
+                if exit_code != 0:
+                    raise BadRequestError(f"Failed to add user SSH key: {stderr}")
+                return  # Success
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    raise BadRequestError(f"Failed to connect to box after {max_retries} attempts: {str(e)}")
+
     async def delete_box(self, box: Box) -> None:
         """Delete a box and its droplet."""
+        # Delete droplet only (SSH key is the shared system key, don't delete it)
         if box.droplet_id:
             try:
                 await self.do_service.delete_droplet(box.droplet_id)
@@ -155,10 +148,10 @@ class BoxProvisioningService:
 
     def _get_ssh_service(self, box: Box) -> SSHService:
         """Get SSH service for a box using the system private key."""
-        if not box.system_private_key:
-            raise BadRequestError("Box does not have system SSH key configured")
+        if not box.ip_address:
+            raise BadRequestError("Box does not have an IP address")
 
-        private_key = decrypt_value(box.system_private_key)
+        private_key = self._get_system_ssh_private_key()
         return SSHService(
             host=box.ip_address,
             username="root",
