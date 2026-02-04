@@ -25,13 +25,20 @@ async def get_current_user(
 
     user = db.query(User).filter(User.auth0_id == auth0_id).first()
 
-    if not user:
-        email = payload.get("email") or payload.get(
-            "https://ai-marketplace.com/email"
-        ) or f"{auth0_id}@auth0.local"
+    # Get real email from token (Auth0 provides it in different places)
+    real_email = payload.get("email") or payload.get(
+        "https://ai-marketplace.com/email"
+    )
 
+    if not user:
+        email = real_email or f"{auth0_id}@auth0.local"
         user = User(auth0_id=auth0_id, email=email)
         db.add(user)
+        db.commit()
+        db.refresh(user)
+    elif real_email and user.email.endswith("@auth0.local"):
+        # Update email if we now have a real one and current is placeholder
+        user.email = real_email
         db.commit()
         db.refresh(user)
 
