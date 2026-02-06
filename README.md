@@ -188,4 +188,4 @@ On cancellation, a 3-day grace period applies before the box is destroyed. Subsc
 
 ## License
 
-MIT
+This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
