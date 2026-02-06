@@ -13,9 +13,11 @@ class CheckoutSessionCreate(BaseModel):
 
 
 class CheckoutSessionResponse(BaseModel):
-    """Response with the Stripe Checkout Session URL."""
-    checkout_url: str
-    session_id: str
+    """Response with the Stripe Checkout Session URL or direct box creation."""
+    checkout_url: Optional[str] = None
+    session_id: Optional[str] = None
+    box_id: Optional[UUID] = None
+    reused_subscription: bool = False
 
 
 class PortalSessionResponse(BaseModel):

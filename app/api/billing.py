@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 
 from app.database import get_db, SessionLocal
-from app.models import Box, BoxStatus, BoxTier, User
+from app.models import Box, BoxStatus, BoxTier, BOX_TIER_SPECS, User
 from app.models.subscription import Subscription, SubscriptionStatus
 from app.schemas.billing import (
     CheckoutSessionCreate,
@@ -50,10 +50,11 @@ def _get_or_create_stripe_customer(user: User, db: Session, real_email: str = No
 @router.post("/checkout-session", response_model=CheckoutSessionResponse)
 async def create_checkout_session(
     data: CheckoutSessionCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a Stripe Checkout Session for a new box subscription."""
+    """Create a Stripe Checkout Session or reuse an existing subscription."""
     settings = get_settings()
     _init_stripe()
 
@@ -71,7 +72,80 @@ async def create_checkout_session(
     # Get or create Stripe customer (pass real email from frontend)
     customer_id = _get_or_create_stripe_customer(current_user, db, real_email=data.email)
 
-    # Create Checkout Session
+    # Check for unassigned active or canceling subscription
+    existing_sub = db.query(Subscription).filter(
+        Subscription.user_id == current_user.id,
+        Subscription.box_id.is_(None),
+        Subscription.status.in_([
+            SubscriptionStatus.ACTIVE.value,
+            SubscriptionStatus.CANCELING.value,
+        ]),
+    ).first()
+
+    if existing_sub:
+        # If subscription is canceling, reactivate it in Stripe first
+        if existing_sub.status == SubscriptionStatus.CANCELING.value:
+            stripe.Subscription.modify(
+                existing_sub.stripe_subscription_id,
+                cancel_at_period_end=False,
+            )
+            existing_sub.status = SubscriptionStatus.ACTIVE.value
+            existing_sub.cancel_at = None
+
+        # If different tier, update Stripe subscription price with proration
+        if existing_sub.stripe_price_id != price_id:
+            stripe_sub = stripe.Subscription.retrieve(existing_sub.stripe_subscription_id)
+            stripe.Subscription.modify(
+                existing_sub.stripe_subscription_id,
+                items=[{
+                    "id": stripe_sub["items"]["data"][0]["id"],
+                    "price": price_id,
+                }],
+                proration_behavior="create_prorations",
+            )
+            existing_sub.stripe_price_id = price_id
+
+        # Create box and attach subscription
+        box = Box(
+            user_id=current_user.id,
+            name=data.box_name,
+            tier=data.tier,
+            region=data.region,
+            status=BoxStatus.PENDING.value,
+            status_message="Reusing subscription, provisioning box..."
+        )
+        db.add(box)
+        db.flush()
+
+        existing_sub.box_id = box.id
+        existing_sub.updated_at = datetime.utcnow()
+        db.commit()
+
+        # Provision in background
+        box_id = box.id
+        user_ssh_key = current_user.ssh_public_key
+
+        async def provision_task():
+            db_session = SessionLocal()
+            try:
+                box_obj = db_session.query(Box).filter(Box.id == box_id).first()
+                if box_obj:
+                    service = get_box_provisioning_service(db_session)
+                    await service.provision_box(
+                        box_obj,
+                        user_ssh_public_key=user_ssh_key
+                    )
+            finally:
+                db_session.close()
+
+        background_tasks.add_task(provision_task)
+
+        return CheckoutSessionResponse(
+            box_id=box.id,
+            reused_subscription=True,
+        )
+
+    # No reusable subscription — create new Checkout Session
     checkout_session = stripe.checkout.Session.create(
         customer=customer_id,
         payment_method_types=["card"],
@@ -132,6 +206,10 @@ async def stripe_webhook(
     elif event["type"] == "invoice.payment_failed":
         invoice = event["data"]["object"]
         _handle_payment_failed(invoice)
+
+    elif event["type"] == "customer.subscription.updated":
+        sub_data = event["data"]["object"]
+        _handle_subscription_updated(sub_data)
 
     elif event["type"] == "customer.subscription.deleted":
         sub_data = event["data"]["object"]
@@ -206,6 +284,56 @@ def _handle_checkout_completed(session: dict, background_tasks: BackgroundTasks)
                 db_session.close()
 
         background_tasks.add_task(provision_task)
+
+    finally:
+        db.close()
+
+
+def _handle_subscription_updated(stripe_sub: dict):
+    """Handle subscription updates: detect cancellation scheduling."""
+    db = SessionLocal()
+    try:
+        stripe_sub_id = stripe_sub.get("id")
+        if not stripe_sub_id:
+            return
+
+        sub = db.query(Subscription).filter(
+            Subscription.stripe_subscription_id == stripe_sub_id
+        ).first()
+
+        if not sub:
+            return
+
+        cancel_at_period_end = stripe_sub.get("cancel_at_period_end", False)
+        cancel_at = stripe_sub.get("cancel_at")
+
+        if cancel_at_period_end and sub.status == SubscriptionStatus.ACTIVE.value:
+            # User scheduled cancellation
+            sub.status = SubscriptionStatus.CANCELING.value
+            sub.cancel_at = datetime.utcfromtimestamp(cancel_at) if cancel_at else None
+            sub.updated_at = datetime.utcnow()
+
+            if sub.box_id:
+                box = db.query(Box).filter(Box.id == sub.box_id).first()
+                if box and sub.cancel_at:
+                    box.status_message = f"Subscription cancels on {sub.cancel_at.strftime('%Y-%m-%d')}"
+                    box.updated_at = datetime.utcnow()
+
+            db.commit()
+
+        elif not cancel_at_period_end and sub.status == SubscriptionStatus.CANCELING.value:
+            # User reactivated subscription
+            sub.status = SubscriptionStatus.ACTIVE.value
+            sub.cancel_at = None
+            sub.updated_at = datetime.utcnow()
+
+            if sub.box_id:
+                box = db.query(Box).filter(Box.id == sub.box_id).first()
+                if box:
+                    box.status_message = None
+                    box.updated_at = datetime.utcnow()
+
+            db.commit()
 
     finally:
         db.close()

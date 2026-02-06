@@ -10,7 +10,6 @@ from app.database import Base
 
 class BoxTier(str, enum.Enum):
     """Box tier options with different resource allocations."""
-    STARTER = "starter"
     BASIC = "basic"
     MEDIUM = "medium"
     PRO = "pro"
@@ -28,14 +27,6 @@ class BoxStatus(str, enum.Enum):
 
 # Tier specifications mapping
 BOX_TIER_SPECS = {
-    BoxTier.STARTER: {
-        "cpu": 1,
-        "ram_gb": 1,
-        "do_size": "s-1vcpu-1gb",
-        "price_cents": 1000,  # $10/mo
-        "display_name": "Starter",
-        "description": "1 vCPU, 1GB RAM - Perfect for trying out a single agent"
-    },
     BoxTier.BASIC: {
         "cpu": 1,
         "ram_gb": 2,

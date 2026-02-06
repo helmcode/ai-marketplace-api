@@ -2,10 +2,11 @@ from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
+from datetime import datetime
 import asyncio
 
 from app.database import get_db, SessionLocal
-from app.models import Box, BoxStatus, BOX_TIER_SPECS, BoxTier, User
+from app.models import Box, BoxStatus, BOX_TIER_SPECS, BoxTier, User, Subscription, SubscriptionStatus
 from app.schemas.box import BoxCreate, BoxResponse, BoxListResponse, BoxUpdate
 from app.api.deps import get_current_user
 from app.services.box_provisioning import get_box_provisioning_service
@@ -15,8 +16,9 @@ router = APIRouter(prefix="/boxes", tags=["boxes"])
 
 
 def _enrich_box_response(box: Box) -> dict:
-    """Add tier specifications to box response."""
+    """Add tier specifications and subscription info to box response."""
     tier_specs = BOX_TIER_SPECS.get(BoxTier(box.tier), BOX_TIER_SPECS[BoxTier.BASIC])
+    sub = box.subscription if hasattr(box, 'subscription') and box.subscription else None
     return {
         "id": box.id,
         "user_id": box.user_id,
@@ -34,6 +36,9 @@ def _enrich_box_response(box: Box) -> dict:
         "tier_ram_gb": tier_specs["ram_gb"],
         "tier_price_cents": tier_specs["price_cents"],
         "user_ssh_synced": box.user_ssh_synced == '1',
+        "subscription_status": sub.status if sub else None,
+        "subscription_cancel_at": sub.cancel_at if sub else None,
+        "subscription_grace_period_end": sub.grace_period_end if sub else None,
     }
 
 
@@ -192,7 +197,7 @@ async def delete_box(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Delete a box and its droplet."""
+    """Delete a box and its droplet. Detaches subscription for reuse."""
     box = db.query(Box).filter(Box.id == box_id).first()
 
     if not box:
@@ -203,6 +208,19 @@ async def delete_box(
 
     if box.status == BoxStatus.DELETED.value:
         raise BadRequestError("Box is already deleted")
+
+    # Detach subscription so it can be reused for a new box
+    sub = db.query(Subscription).filter(
+        Subscription.box_id == box.id,
+        Subscription.status.in_([
+            SubscriptionStatus.ACTIVE.value,
+            SubscriptionStatus.CANCELING.value,
+        ])
+    ).first()
+    if sub:
+        sub.box_id = None
+        sub.updated_at = datetime.utcnow()
+        db.commit()
 
     # Capture box_id before session closes
     box_id_to_delete = box.id

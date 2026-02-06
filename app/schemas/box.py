@@ -7,7 +7,6 @@ from enum import Enum
 
 class BoxTierEnum(str, Enum):
     """Box tier options."""
-    STARTER = "starter"
     BASIC = "basic"
     MEDIUM = "medium"
     PRO = "pro"
@@ -70,6 +69,11 @@ class BoxResponse(BaseModel):
 
     # User SSH access
     user_ssh_synced: bool = False
+
+    # Subscription info
+    subscription_status: Optional[str] = None
+    subscription_cancel_at: Optional[datetime] = None
+    subscription_grace_period_end: Optional[datetime] = None
 
     class Config:
         from_attributes = True
