@@ -9,6 +9,7 @@ FastAPI backend for the AI Agent Marketplace.
 - **Migrations**: Alembic
 - **Authentication**: Auth0 JWT validation
 - **Database**: PostgreSQL
+- **Payments**: Stripe (subscriptions, webhooks, customer portal)
 - **SSH Client**: Paramiko (for VPS operations and Web Terminal)
 - **HTTP Client**: httpx (for Digital Ocean API)
 - **WebSocket**: For real-time terminal communication
@@ -28,7 +29,10 @@ backend/
 │   ├── env.py
 │   └── versions/
 │       ├── 001_initial_schema.py
-│       └── 002_box_model.py
+│       ├── 002_box_model.py
+│       ├── 003_add_user_ssh_synced.py
+│       ├── 004_add_subscriptions.py
+│       └── 005_add_subscription_cancel_at.py
 │
 └── app/
     ├── __init__.py
@@ -41,14 +45,16 @@ backend/
     │   ├── user.py
     │   ├── agent_catalog.py
     │   ├── box.py                  # Box (VPS) model with tiers
-    │   └── box_agent.py            # Agent installations in boxes
+    │   ├── box_agent.py            # Agent installations in boxes
+    │   └── subscription.py         # Stripe subscription model
     │
     ├── schemas/                    # Pydantic schemas
     │   ├── __init__.py
     │   ├── user.py
     │   ├── agent.py
     │   ├── box.py
-    │   └── box_agent.py
+    │   ├── box_agent.py
+    │   └── billing.py
     │
     ├── api/                        # API endpoints
     │   ├── __init__.py
@@ -59,8 +65,8 @@ backend/
     │   ├── boxes.py                # Box CRUD + provisioning
     │   ├── box_agents.py           # Install/manage agents in boxes
     │   ├── terminal.py             # WebSocket terminal proxy
-    │   ├── files.py                # Agent file operations (Phase 2)
-    │   └── billing.py              # Stripe webhooks (Phase 3)
+    │   ├── billing.py              # Stripe checkout, webhooks, portal
+    │   └── files.py                # Agent file operations (Phase 2)
     │
     ├── services/                   # Business logic
     │   ├── __init__.py
@@ -96,9 +102,9 @@ class User(Base):
 
 ```python
 class BoxTier(str, enum.Enum):
-    BASIC = "basic"    # 1 vCPU, 2GB RAM, $12/mo
-    MEDIUM = "medium"  # 2 vCPU, 4GB RAM, $24/mo
-    PRO = "pro"        # 4 vCPU, 8GB RAM, $48/mo
+    BASIC = "basic"    # 1 vCPU, 2GB RAM, $16/mo
+    MEDIUM = "medium"  # 2 vCPU, 4GB RAM, $28/mo
+    PRO = "pro"        # 4 vCPU, 8GB RAM, $52/mo
 
 class BoxStatus(str, enum.Enum):
     PENDING = "pending"
@@ -191,6 +197,33 @@ class BoxAgent(Base):
     box = relationship("Box", back_populates="agents")
 ```
 
+### Subscription
+
+```python
+class SubscriptionStatus(str, enum.Enum):
+    ACTIVE = "active"
+    CANCELING = "canceling"
+    PAST_DUE = "past_due"
+    CANCELED = "canceled"
+    GRACE_PERIOD = "grace_period"
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id = Column(UUID, primary_key=True, default=uuid4)
+    user_id = Column(UUID, ForeignKey("users.id"), nullable=False)
+    box_id = Column(UUID, ForeignKey("boxes.id"), nullable=True)  # Nullable: detached when box is deleted
+    stripe_customer_id = Column(String(255), nullable=False)
+    stripe_subscription_id = Column(String(255), unique=True, nullable=False)
+    stripe_price_id = Column(String(255), nullable=False)
+    status = Column(String(30), default=SubscriptionStatus.ACTIVE.value)
+    cancel_at = Column(DateTime, nullable=True)
+    grace_period_end = Column(DateTime, nullable=True)
+
+    user = relationship("User", backref="subscriptions")
+    box = relationship("Box", backref=backref("subscription", uselist=False))
+```
+
 ## API Endpoints
 
 ### Authentication
@@ -235,19 +268,31 @@ PUT  /api/users/me
 GET  /api/boxes
      List user's boxes
 
-POST /api/boxes
-     Create new box (provisions VPS)
-     Body: {
-       "name": "My Dev Box",
-       "tier": "basic",   # basic | medium | pro
-       "region": "nyc1"
-     }
-
 GET  /api/boxes/{id}
-     Get box details with installed agents
+     Get box details with installed agents (includes subscription status)
+
+POST /api/boxes/{id}/sync-ssh
+     Sync user's SSH key to box
 
 DELETE /api/boxes/{id}
-       Delete box (destroys VPS)
+       Delete box (destroys VPS, detaches subscription for reuse)
+```
+
+### Billing (Protected)
+
+```
+POST /api/billing/checkout-session
+     Create Stripe Checkout Session (or reuse existing subscription)
+     Body: { "box_name": "My Box", "tier": "basic", "region": "nyc1", "email": "user@example.com" }
+
+POST /api/billing/customer-portal
+     Create Stripe Customer Portal session
+     Returns: { "portal_url": "https://billing.stripe.com/..." }
+
+POST /api/billing/webhook
+     Stripe webhook handler (no JWT auth - uses Stripe signature)
+     Events: checkout.session.completed, invoice.payment_failed,
+             customer.subscription.updated, customer.subscription.deleted
 ```
 
 ### Box Agents (Protected)
@@ -471,9 +516,11 @@ SYSTEM_SSH_PRIVATE_KEY_PATH=/path/to/.ssh/id_ed25519  # Path to private key on s
 # Encryption (for sensitive config values)
 ENCRYPTION_KEY=your-32-byte-key
 
-# Stripe (Phase 3)
-STRIPE_SECRET_KEY=sk_test_...
+# Stripe
+STRIPE_SECRET_KEY=sk_...
 STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_MAP={"basic":"price_xxx","medium":"price_yyy","pro":"price_zzz"}
+FRONTEND_URL=http://localhost:5173
 ```
 
 ## Development
