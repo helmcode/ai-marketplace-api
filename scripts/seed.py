@@ -11,58 +11,7 @@ from app.database import SessionLocal
 from app.models.agent_catalog import AgentCatalog
 
 
-OPENCLAW_CONFIG_SCHEMA = {
-    "type": "object",
-    "required": ["provider", "api_key", "model"],
-    "properties": {
-        "provider": {
-            "type": "string",
-            "title": "AI Provider",
-            "description": "Select your AI model provider",
-            "enum": ["anthropic", "openai", "openrouter"],
-            "enumLabels": {
-                "anthropic": "Anthropic (Claude)",
-                "openai": "OpenAI (GPT)",
-                "openrouter": "OpenRouter"
-            },
-            "default": "anthropic"
-        },
-        "api_key": {
-            "type": "string",
-            "title": "API Key",
-            "description": "Your provider's API key",
-            "format": "password"
-        },
-        "model": {
-            "type": "string",
-            "title": "Model",
-            "description": "AI model to use",
-            "dependsOn": "provider",
-            "options": {
-                "anthropic": [
-                    {"value": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5"},
-                    {"value": "claude-opus-4-5", "label": "Claude Opus 4.5"}
-                ],
-                "openai": [
-                    {"value": "gpt-4o", "label": "GPT-4o"},
-                    {"value": "gpt-4-turbo", "label": "GPT-4 Turbo"}
-                ],
-                "openrouter": [
-                    {"value": "anthropic/claude-3-opus", "label": "Claude 3 Opus"},
-                    {"value": "openai/gpt-4-turbo", "label": "GPT-4 Turbo"},
-                    {"value": "meta-llama/llama-3-70b", "label": "Llama 3 70B"}
-                ]
-            }
-        },
-        "agent_name": {
-            "type": "string",
-            "title": "Agent Name",
-            "description": "Give your agent a friendly name",
-            "default": "Claw",
-            "maxLength": 50
-        }
-    }
-}
+OPENCLAW_CONFIG_SCHEMA = {}  # User configures via TUI
 
 OPENCLAW_DESCRIPTION = "Autonomous AI agent with multi-channel messaging support."
 
@@ -162,7 +111,7 @@ def seed_agents():
             "snapshot_id": None,
             "droplet_size": "s-1vcpu-2gb",
             "droplet_region": "nyc1",
-            "base_price": 2900,  # $29.00
+            "base_price": 0,  # Free (user configures via TUI)
             "is_active": 1,
             "install_script_url": OPENCLAW_INSTALL_SCRIPT_URL,
             "install_command": OPENCLAW_INSTALL_COMMAND,
