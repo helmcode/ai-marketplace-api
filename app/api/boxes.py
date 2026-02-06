@@ -72,7 +72,8 @@ async def create_box(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a new box."""
+    """Create a new box. Use /api/billing/checkout-session instead."""
+    raise BadRequestError("Could not create box. Please try again.")
     # Validate tier
     try:
         BoxTier(box_data.tier.value)

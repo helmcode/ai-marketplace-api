@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.api import users, agents, tiers, boxes, box_agents, ws_terminal
+from app.api import users, agents, tiers, boxes, box_agents, ws_terminal, billing
 
 settings = get_settings()
 
@@ -26,6 +26,7 @@ app.include_router(agents.router, prefix="/api")
 app.include_router(tiers.router, prefix="/api")
 app.include_router(boxes.router, prefix="/api")
 app.include_router(box_agents.router, prefix="/api")
+app.include_router(billing.router, prefix="/api")
 
 # WebSocket routers
 app.include_router(ws_terminal.router)

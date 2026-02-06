@@ -7,6 +7,7 @@ from enum import Enum
 
 class BoxTierEnum(str, Enum):
     """Box tier options."""
+    STARTER = "starter"
     BASIC = "basic"
     MEDIUM = "medium"
     PRO = "pro"

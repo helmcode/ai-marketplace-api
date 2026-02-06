@@ -24,8 +24,23 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
 
+    # Stripe
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_map: str = ""  # JSON: {"basic":"price_xxx","medium":"price_yyy","pro":"price_zzz"}
+
+    # Frontend URL (for Stripe redirects)
+    frontend_url: str = "https://ai.helmcode.com"
+
     # CORS (comma-separated URLs)
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
+
+    @property
+    def stripe_prices(self) -> dict[str, str]:
+        import json
+        if self.stripe_price_map:
+            return json.loads(self.stripe_price_map)
+        return {}
 
     @property
     def cors_origins_list(self) -> list[str]:

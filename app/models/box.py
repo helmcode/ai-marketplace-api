@@ -10,6 +10,7 @@ from app.database import Base
 
 class BoxTier(str, enum.Enum):
     """Box tier options with different resource allocations."""
+    STARTER = "starter"
     BASIC = "basic"
     MEDIUM = "medium"
     PRO = "pro"
@@ -27,11 +28,19 @@ class BoxStatus(str, enum.Enum):
 
 # Tier specifications mapping
 BOX_TIER_SPECS = {
+    BoxTier.STARTER: {
+        "cpu": 1,
+        "ram_gb": 1,
+        "do_size": "s-1vcpu-1gb",
+        "price_cents": 1000,  # $10/mo
+        "display_name": "Starter",
+        "description": "1 vCPU, 1GB RAM - Perfect for trying out a single agent"
+    },
     BoxTier.BASIC: {
         "cpu": 1,
         "ram_gb": 2,
         "do_size": "s-1vcpu-2gb",
-        "price_cents": 1200,  # $12/mo
+        "price_cents": 1600,  # $16/mo
         "display_name": "Basic",
         "description": "1 vCPU, 2GB RAM - Good for single agent workloads"
     },
@@ -39,7 +48,7 @@ BOX_TIER_SPECS = {
         "cpu": 2,
         "ram_gb": 4,
         "do_size": "s-2vcpu-4gb",
-        "price_cents": 2400,  # $24/mo
+        "price_cents": 2800,  # $28/mo
         "display_name": "Medium",
         "description": "2 vCPU, 4GB RAM - Good for multiple agents"
     },
@@ -47,8 +56,8 @@ BOX_TIER_SPECS = {
         "cpu": 4,
         "ram_gb": 8,
         "do_size": "s-4vcpu-8gb",
-        "price_cents": 4800,  # $48/mo
-        "display_name": "PRO",
+        "price_cents": 5200,  # $52/mo
+        "display_name": "Pro",
         "description": "4 vCPU, 8GB RAM - Maximum performance"
     }
 }

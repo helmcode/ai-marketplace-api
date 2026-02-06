@@ -14,6 +14,7 @@ class User(Base):
     auth0_id = Column(String(255), unique=True, nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False)
     ssh_public_key = Column(Text, nullable=True)
+    stripe_customer_id = Column(String(255), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
